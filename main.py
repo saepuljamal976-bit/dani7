@@ -1,6 +1,5 @@
 import os
 import json
-import requests
 import feedparser
 import google.generativeai as genai
 from supabase import create_client
@@ -18,26 +17,20 @@ if GEMINI_KEY:
 else:
     model = None
 
-# 2. SUMBER RSS (Ditambah Antara News yang Anti-Block)
+# 2. SUMBER RSS (Domain Antara diperbaiki & tambah Sindonews)
 RSS_URLS = [
-    "https://www.antara-news.com/rss/ekonomi-bursa-dan-valas.xml",
-    "https://www.cnbcindonesia.com/market/rss",
-    "https://investasi.kontan.co.id/rss"
+    "https://www.antaranews.com/rss/ekonomi-bursa-dan-valas.xml",
+    "https://ekbis.sindonews.com/rss",
+    "https://www.cnbcindonesia.com/market/rss"
 ]
-
-# Header Browser Lengkap (Biar tidak diblokir server berita)
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-}
 
 print("🚀 === MEMULAI BOT BERITAMOLOGY ===")
 
 for url in RSS_URLS:
     print(f"\n📡 Scraping: {url}")
     try:
-        res = requests.get(url, headers=HEADERS, timeout=15)
-        feed = feedparser.parse(res.content)
+        # Trik: feedparser langsung buka URL tanpa lewat requests.get
+        feed = feedparser.parse(url)
         print(f"-> Ditemukan {len(feed.entries)} artikel.")
 
         for entry in feed.entries[:3]:
