@@ -1,6 +1,5 @@
 import os
 import json
-import requests
 import feedparser
 import google.generativeai as genai
 from supabase import create_client
@@ -16,123 +15,120 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Inisialisasi AI Gemini dengan fallback beberapa nama model aktif
+# Inisialisasi AI Gemini Secara Otomatis dari Model yang Aktif
 ai_model = None
 if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
-    for m_name in ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-2.0-flash', 'gemini-1.5-pro']:
-        try:
-            ai_model = genai.GenerativeModel(m_name)
-            print(f"🤖 Connected to Gemini AI: {m_name}")
-            break
-        except Exception:
-            continue
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+        # Cari model yang aktif dan mendukung generateContent
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+        
+        # Prioritaskan model flash/pro yang tersedia
+        selected_model = None
+        for pref in ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']:
+            matching = [m for m in available_models if pref in m]
+            if matching:
+                selected_model = matching[0]
+                break
+        
+        if not selected_model and available_models:
+            selected_model = available_models[0]
+            
+        if selected_model:
+            ai_model = genai.GenerativeModel(selected_model)
+            print(f"🤖 Connected Gemini AI Model: {selected_model}")
+    except Exception as e:
+        print(f"⚠️ Gagal inisialisasi Gemini: {e}")
 
-# 2. DAFTAR 10 MEDIA FINANSIAL & PASAR MODAL INDONESIA TIER-1 (Bebas Hoax)
+# 2. DAFTAR SUMBER BERITA FINANSIAL TIER-1 (Jalur Direct + Google News RSS Bypass 403)
 SOURCES = [
-    {
-        "name": "IDX Channel (Resmi BEI)",
-        "url": "https://www.idxchannel.com/market-news/rss"
-    },
-    {
-        "name": "Kontan Investasi",
-        "url": "https://investasi.kontan.co.id/rss"
-    },
-    {
-        "name": "CNBC Indonesia Market",
-        "url": "https://www.cnbcindonesia.com/market/rss"
-    },
-    {
-        "name": "Bisnis.com Market",
-        "url": "https://market.bisnis.com/rss"
-    },
-    {
-        "name": "Antara Bursa & Valas",
-        "url": "https://www.antaranews.com/rss/ekonomi-bursa-dan-valas.xml"
-    },
-    {
-        "name": "Investor Daily (Investor.id)",
-        "url": "https://investor.id/rss"
-    },
     {
         "name": "Detik Finance Bursa",
         "url": "https://finance.detik.com/bursa-dan-valas/rss"
-    },
-    {
-        "name": "CNN Indonesia Ekonomi",
-        "url": "https://www.cnnindonesia.com/ekonomi/rss"
     },
     {
         "name": "Sindonews Ekbis",
         "url": "https://ekbis.sindonews.com/rss"
     },
     {
-        "name": "Republika Ekonomi",
-        "url": "https://ekonomi.republika.co.id/rss"
+        "name": "IDX Channel",
+        "url": "https://news.google.com/rss/search?q=site:idxchannel.com+saham&hl=id&gl=ID&ceid=ID:id"
+    },
+    {
+        "name": "Kontan Investasi",
+        "url": "https://news.google.com/rss/search?q=site:investasi.kontan.co.id&hl=id&gl=ID&ceid=ID:id"
+    },
+    {
+        "name": "CNBC Indonesia Market",
+        "url": "https://news.google.com/rss/search?q=site:cnbcindonesia.com/market&hl=id&gl=ID&ceid=ID:id"
+    },
+    {
+        "name": "Bisnis.com Market",
+        "url": "https://news.google.com/rss/search?q=site:market.bisnis.com&hl=id&gl=ID&ceid=ID:id"
+    },
+    {
+        "name": "Investor.id Pasar Modal",
+        "url": "https://news.google.com/rss/search?q=site:investor.id+saham&hl=id&gl=ID&ceid=ID:id"
+    },
+    {
+        "name": "Antara Ekonomi",
+        "url": "https://news.google.com/rss/search?q=site:antaranews.com/ekonomi&hl=id&gl=ID&ceid=ID:id"
     }
 ]
 
-# Header Browser Lengkap untuk bypass proteksi server
-session = requests.Session()
-session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-})
-
-print("\n🚀 === MEMULAI BOT BERITAMOLOGY (PASAR MODAL INDONESIA) ===")
+print("\n🚀 === MEMULAI BOT BERITAMOLOGY (SAHAM INDONESIA) ===")
 
 total_saved = 0
 
 for src in SOURCES:
-    print(f"\n📡 Scraping: {src['name']} ({src['url']})")
+    print(f"\n📡 Scraping: {src['name']}")
     try:
-        # Ambil konten RSS
-        response = session.get(src['url'], timeout=10)
-        
-        if response.status_code != 200:
-            print(f"   ⚠️ HTTP {response.status_code}, mencoba parse alternatif...")
-            feed = feedparser.parse(src['url'])
-        else:
-            feed = feedparser.parse(response.content)
-
+        feed = feedparser.parse(src['url'])
         entries = feed.entries
         print(f"   -> Ditemukan {len(entries)} artikel.")
 
-        for entry in entries[:2]:  # Ambil 2 artikel paling baru per media
+        for entry in entries[:2]:  # Ambil 2 berita terbaru per sumber
             title = getattr(entry, 'title', '').strip()
             link = getattr(entry, 'link', '').strip()
 
             if not title or not link:
                 continue
 
-            print(f"\n🔎 Memproses: {title[:40]}...")
+            # Bersihkan akhiran nama media dari judul jika ada (contoh: "... - CNBC Indonesia")
+            if " - " in title:
+                title_clean = title.rsplit(" - ", 1)[0]
+            else:
+                title_clean = title
+
+            print(f"🔎 Memproses: {title_clean[:45]}...")
 
             # 1. Cek Duplikat di Supabase
             try:
                 check = supabase.table("berita").select("id").eq("source_url", link).execute()
                 if check.data:
-                    print("   ⏭️ Sudah ada di DB (Skip).")
+                    print("   ⏭️ Sudah ada di Database (Skip).")
                     continue
             except Exception as e:
                 print(f"   ⚠️ Cek DB Error: {e}")
 
-            # Defaults jika AI offline
-            summary_text = title
+            summary_text = title_clean
             bullets_list = [
-                f"Sumber berita resmi: {src['name']}.",
+                f"Sumber berita resmi dari {src['name']}.",
                 "Pantau pergerakan emiten & IHSG terkait.",
                 "Data diolah secara otomatis oleh Beritamology."
             ]
             sentiment_val = "neutral"
             tickers_list = []
 
-            # 2. Analisis dengan AI Gemini (Khusus Saham BEI/IDX)
+            # 2. Analisis Berita dengan Gemini AI
             if ai_model:
                 try:
                     prompt = f'''
                     Kamu adalah Analis Senior Pasar Modal Indonesia (BEI/IDX).
-                    Analisis judul berita saham berikut: "{title}"
+                    Analisis judul berita saham berikut: "{title_clean}"
 
                     Instruksi:
                     1. Identifikasi ticker kode saham Indonesia 4 huruf jika ada (contoh: ["BBCA", "TLKM", "BMRI"]). Jika tidak ada, isi [].
@@ -156,10 +152,10 @@ for src in SOURCES:
                 except Exception as ai_err:
                     print(f"   ⚠️ AI Bypass: {ai_err}")
 
-            # 3. Simpan ke Supabase
+            # 3. Simpan Ke Supabase
             try:
                 supabase.table("berita").insert({
-                    "title": title,
+                    "title": title_clean,
                     "summary": summary_text,
                     "bullets": bullets_list,
                     "tickers": tickers_list,
@@ -171,9 +167,9 @@ for src in SOURCES:
                 print("   ✅ SUCCESS SAVED TO SUPABASE!")
                 total_saved += 1
             except Exception as ins_err:
-                print(f"   ❌ Gagal simpan ke Supabase: {ins_err}")
+                print(f"   ❌ Gagal Simpan: {ins_err}")
 
     except Exception as err:
-        print(f"   ❌ Error saat mengambil dari {src['name']}: {err}")
+        print(f"   ❌ Error pada {src['name']}: {err}")
 
-print(f"\n🎉 === BOT SELESAI! Total {total_saved} Berita Baru Tersimpan di Supabase ===")
+print(f"\n🎉 === BOT SELESAI! Total {total_saved} Berita Baru Tersimpan di Supaba
