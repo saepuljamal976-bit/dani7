@@ -10,80 +10,89 @@ GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 
-genai.configure(api_key=GEMINI_KEY)
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
 
-# 2. SUMBER RSS
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+else:
+    model = None
+
+# 2. SUMBER RSS (Ditambah Antara News yang Anti-Block)
 RSS_URLS = [
+    "https://www.antara-news.com/rss/ekonomi-bursa-dan-valas.xml",
     "https://www.cnbcindonesia.com/market/rss",
-    "https://investasi.kontan.co.id/rss",
-    "https://market.bisnis.com/rss"
+    "https://investasi.kontan.co.id/rss"
 ]
 
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+# Header Browser Lengkap (Biar tidak diblokir server berita)
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+}
 
 print("🚀 === MEMULAI BOT BERITAMOLOGY ===")
 
 for url in RSS_URLS:
     print(f"\n📡 Scraping: {url}")
     try:
-        res = requests.get(url, headers=HEADERS, timeout=10)
+        res = requests.get(url, headers=HEADERS, timeout=15)
         feed = feedparser.parse(res.content)
         print(f"-> Ditemukan {len(feed.entries)} artikel.")
 
         for entry in feed.entries[:3]:
-            title = entry.title
-            link = entry.link
+            title = getattr(entry, 'title', '')
+            link = getattr(entry, 'link', '')
 
-            # Cek Duplikat
-            check = supabase.table("berita").select("id").eq("source_url", link).execute()
-            if check.data:
-                print(f"⏭️  [Ada] {title[:30]}...")
+            if not title or not link:
                 continue
 
-            # Default Data (Jika AI Error, data ini yang dipakai)
+            print(f"🔎 Memproses: {title[:35]}...")
+
+            # Cek Duplikat
+            try:
+                check = supabase.table("berita").select("id").eq("source_url", link).execute()
+                if check.data:
+                    print("   ⏭️ Sudah ada di DB, skip.")
+                    continue
+            except Exception as e:
+                print(f"   ⚠️ Cek DB error: {e}")
+
             summary_text = title
-            bullets_list = ["Berita pasar keuangan terkini.", "Pantau pergerakan harga saham terkait.", "Data diperbarui otomatis."]
+            bullets_list = ["Berita pasar saham terbaru.", "Pantau pergerakan emiten terkait.", "Data diperbarui otomatis."]
             sentiment_val = "neutral"
             tickers_list = []
 
-            # Coba Olah Pakai AI
+            # Olah dengan AI
+            if model:
+                try:
+                    prompt = f'Analisis berita: "{title}". Output JSON murni: {{"tickers":[], "summary":"Ringkasan singkat","bullets":["Poin 1","Poin 2"],"sentiment":"neutral"}}'
+                    ai_res = model.generate_content(prompt)
+                    clean = ai_res.text.replace("```json", "").replace("```", "").strip()
+                    data = json.loads(clean)
+                    summary_text = data.get("summary", summary_text)
+                    bullets_list = data.get("bullets", bullets_list)
+                    sentiment_val = data.get("sentiment", "neutral")
+                    tickers_list = data.get("tickers", [])
+                    print("   🤖 AI Berhasil.")
+                except Exception as ai_err:
+                    print(f"   ⚠️ AI Bypass: {ai_err}")
+
+            # Simpan ke Supabase
             try:
-                prompt = f"""Analisis berita saham ini: "{title}".
-                Output Wajib JSON murni:
-                {{
-                  "tickers": ["KODE_SAHAM_JIKA_ADA"],
-                  "summary": "Ringkasan 1 kalimat",
-                  "bullets": ["Poin 1", "Poin 2", "Poin 3"],
-                  "sentiment": "green/red/neutral"
-                }}"""
-                
-                ai_res = model.generate_content(prompt)
-                clean = ai_res.text.replace("```json", "").replace("```", "").strip()
-                data = json.loads(clean)
-                
-                summary_text = data.get("summary", summary_text)
-                bullets_list = data.get("bullets", bullets_list)
-                sentiment_val = data.get("sentiment", "neutral")
-                tickers_list = data.get("tickers", [])
-                print(f"🤖 AI Success untuk: {title[:30]}...")
-            except Exception as e:
-                print(f"⚠️ AI Bypass (Tetap Simpan): {e}")
-
-            # Tetap Simpan ke Supabase Apapun Yang Terjadi
-            insert_res = supabase.table("berita").insert({
-                "title": title,
-                "summary": summary_text,
-                "bullets": bullets_list,
-                "tickers": tickers_list,
-                "category": "Saham Indo",
-                "sentiment": sentiment_val,
-                "source_url": link,
-                "is_active": True
-            }).execute()
-
-            print(f"✅ SUCCESS SAVED: {title[:40]}...")
+                supabase.table("berita").insert({
+                    "title": title,
+                    "summary": summary_text,
+                    "bullets": bullets_list,
+                    "tickers": tickers_list,
+                    "category": "Saham Indo",
+                    "sentiment": sentiment_val,
+                    "source_url": link,
+                    "is_active": True
+                }).execute()
+                print("   ✅ SUCCESS SAVED TO SUPABASE!")
+            except Exception as ins_err:
+                print(f"   ❌ Gagal Simpan: {ins_err}")
 
     except Exception as err:
         print(f"❌ Feed Error: {err}")
