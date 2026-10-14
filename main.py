@@ -15,35 +15,19 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Inisialisasi AI Gemini Secara Otomatis dari Model yang Aktif
+# Inisialisasi AI Gemini
 ai_model = None
 if GEMINI_KEY:
-    try:
-        genai.configure(api_key=GEMINI_KEY)
-        # Cari model yang aktif dan mendukung generateContent
-        available_models = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-        
-        # Prioritaskan model flash/pro yang tersedia
-        selected_model = None
-        for pref in ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']:
-            matching = [m for m in available_models if pref in m]
-            if matching:
-                selected_model = matching[0]
-                break
-        
-        if not selected_model and available_models:
-            selected_model = available_models[0]
-            
-        if selected_model:
-            ai_model = genai.GenerativeModel(selected_model)
-            print(f"🤖 Connected Gemini AI Model: {selected_model}")
-    except Exception as e:
-        print(f"⚠️ Gagal inisialisasi Gemini: {e}")
+    genai.configure(api_key=GEMINI_KEY)
+    for model_name in ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']:
+        try:
+            ai_model = genai.GenerativeModel(model_name)
+            print(f"🤖 Connected Gemini AI Model: {model_name}")
+            break
+        except Exception:
+            continue
 
-# 2. DAFTAR SUMBER BERITA FINANSIAL TIER-1 (Jalur Direct + Google News RSS Bypass 403)
+# 2. DAFTAR 10 MEDIA FINANSIAL & PASAR MODAL INDONESIA TIER-1
 SOURCES = [
     {
         "name": "Detik Finance Bursa",
@@ -76,10 +60,18 @@ SOURCES = [
     {
         "name": "Antara Ekonomi",
         "url": "https://news.google.com/rss/search?q=site:antaranews.com/ekonomi&hl=id&gl=ID&ceid=ID:id"
+    },
+    {
+        "name": "CNN Indonesia Ekonomi",
+        "url": "https://news.google.com/rss/search?q=site:cnnindonesia.com/ekonomi+saham&hl=id&gl=ID&ceid=ID:id"
+    },
+    {
+        "name": "Republika Ekonomi",
+        "url": "https://news.google.com/rss/search?q=site:ekonomi.republika.co.id+saham&hl=id&gl=ID&ceid=ID:id"
     }
 ]
 
-print("\n🚀 === MEMULAI BOT BERITAMOLOGY (SAHAM INDONESIA) ===")
+print("\n🚀 === MEMULAI BOT BERITAMOLOGY (10 MEDIA SAHAM INDO) ===")
 
 total_saved = 0
 
@@ -97,13 +89,13 @@ for src in SOURCES:
             if not title or not link:
                 continue
 
-            # Bersihkan akhiran nama media dari judul jika ada (contoh: "... - CNBC Indonesia")
+            # Bersihkan nama media di akhir judul jika ada (contoh: "... - CNBC Indonesia")
             if " - " in title:
                 title_clean = title.rsplit(" - ", 1)[0]
             else:
                 title_clean = title
 
-            print(f"🔎 Memproses: {title_clean[:45]}...")
+            print(f"🔎 Memproses: {title_clean[:40]}...")
 
             # 1. Cek Duplikat di Supabase
             try:
@@ -126,19 +118,7 @@ for src in SOURCES:
             # 2. Analisis Berita dengan Gemini AI
             if ai_model:
                 try:
-                    prompt = f'''
-                    Kamu adalah Analis Senior Pasar Modal Indonesia (BEI/IDX).
-                    Analisis judul berita saham berikut: "{title_clean}"
-
-                    Instruksi:
-                    1. Identifikasi ticker kode saham Indonesia 4 huruf jika ada (contoh: ["BBCA", "TLKM", "BMRI"]). Jika tidak ada, isi [].
-                    2. Buat rangkuman singkat (maksimal 2 kalimat).
-                    3. Buat 3 poin utama (bullet points).
-                    4. Tentukan sentimen terhadap pasar/emiten: "positive", "negative", atau "neutral".
-
-                    Output WAJIB berupa JSON murni tanpa format markdown:
-                    {{"tickers": ["KODE"], "summary": "Rangkuman...", "bullets": ["Poin 1", "Poin 2", "Poin 3"], "sentiment": "positive"}}
-                    '''
+                    prompt = f'Analisis judul berita saham berikut: "{title_clean}". Identifikasi kode saham Indonesia (4 huruf), buat rangkuman max 2 kalimat, 3 poin utama, dan sentimen ("positive", "negative", "neutral"). Output WAJIB JSON murni: {{"tickers": [], "summary": "...", "bullets": ["1","2","3"], "sentiment": "neutral"}}'
                     
                     ai_res = ai_model.generate_content(prompt)
                     clean_res = ai_res.text.replace("```json", "").replace("```", "").strip()
@@ -172,4 +152,4 @@ for src in SOURCES:
     except Exception as err:
         print(f"   ❌ Error pada {src['name']}: {err}")
 
-print(f"\n🎉 === BOT SELESAI! Total {total_saved} Berita Baru Tersimpan di Supaba
+print(f"\n🎉 === BOT SELESAI! Total {total_saved} Berita Baru Tersimpan ===")
