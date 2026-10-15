@@ -15,19 +15,22 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Inisialisasi AI Gemini
+# Inisialisasi AI Gemini dengan Auto-Fallback Model
 ai_model = None
 if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
-    for model_name in ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']:
-        try:
-            ai_model = genai.GenerativeModel(model_name)
-            print(f"🤖 Connected Gemini AI Model: {model_name}")
-            break
-        except Exception:
-            continue
+    try:
+        genai.configure(api_key=GEMINI_KEY)
+        for model_name in ['gemini-1.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro']:
+            try:
+                ai_model = genai.GenerativeModel(model_name)
+                print(f"🤖 Connected Gemini AI Model: {model_name}")
+                break
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"⚠️ Gagal inisialisasi Gemini: {e}")
 
-# 2. DAFTAR 10 MEDIA FINANSIAL & PASAR MODAL INDONESIA TIER-1
+# 2. DAFTAR 10 MEDIA FINANSIAL INDONESIA TIER-1
 SOURCES = [
     {
         "name": "Detik Finance Bursa",
@@ -71,7 +74,7 @@ SOURCES = [
     }
 ]
 
-print("\n🚀 === MEMULAI BOT BERITAMOLOGY (10 MEDIA SAHAM INDO) ===")
+print("\n🚀 === MEMULAI BOT BERITAMOLOGY (ANTI-HOAX & SMART ANALYTICS) ===")
 
 total_saved = 0
 
@@ -89,7 +92,7 @@ for src in SOURCES:
             if not title or not link:
                 continue
 
-            # Bersihkan nama media di akhir judul jika ada (contoh: "... - CNBC Indonesia")
+            # Bersihkan nama sumber jika ada di akhir judul
             if " - " in title:
                 title_clean = title.rsplit(" - ", 1)[0]
             else:
@@ -106,6 +109,7 @@ for src in SOURCES:
             except Exception as e:
                 print(f"   ⚠️ Cek DB Error: {e}")
 
+            # Defaults
             summary_text = title_clean
             bullets_list = [
                 f"Sumber berita resmi dari {src['name']}.",
@@ -114,11 +118,40 @@ for src in SOURCES:
             ]
             sentiment_val = "neutral"
             tickers_list = []
+            action_signal = "Watchlist"
+            risk_score = 5
 
-            # 2. Analisis Berita dengan Gemini AI
+            # 2. Analisis Anti-Hoax & Bandarmology Gemini AI
             if ai_model:
                 try:
-                    prompt = f'Analisis judul berita saham berikut: "{title_clean}". Identifikasi kode saham Indonesia (4 huruf), buat rangkuman max 2 kalimat, 3 poin utama, dan sentimen ("positive", "negative", "neutral"). Output WAJIB JSON murni: {{"tickers": [], "summary": "...", "bullets": ["1","2","3"], "sentiment": "neutral"}}'
+                    prompt = f'''
+                    Kamu adalah Audit AI & Senior Equity Analyst Pasar Modal Indonesia (BEI/IDX).
+                    Analisis judul berita saham ini: "{title_clean}"
+
+                    INSTRUKSI KHUSUS DETEKSI HOAX / POM-POM:
+                    - Periksa apakah judul berisi klaim sensasional tanpa dasar/data resmi (contoh: "siap ARA", "terbang ke langit", "rumor dicaplok", "target gila-gilaan").
+                    - Jika indikasi Pompom/Spekulasi Tinggi terdeteksi: Set "is_pompom": true, "action_signal": "Caution", dan "risk_score": 8.
+                    
+                    TUGAS OUTPUT:
+                    1. "tickers": Kode saham BEI 4 huruf besar jika ada (misal ["BBCA"]). Jika tidak ada, [].
+                    2. "summary": Rangkuman objektif max 2 kalimat.
+                    3. "bullets": 3 poin analisis utama.
+                    4. "sentiment": "positive", "negative", atau "neutral".
+                    5. "action_signal": "Bullish", "Watchlist", atau "Caution".
+                    6. "risk_score": Angka 1-10 (1 aman/fakta kuat, 10 sangat berisiko/pompom).
+                    7. "is_pompom": boolean (true/false).
+
+                    Output WAJIB berupa JSON murni tanpa format markdown:
+                    {{
+                        "tickers": ["KODE"],
+                        "summary": "Rangkuman...",
+                        "bullets": ["Poin 1", "Poin 2", "Poin 3"],
+                        "sentiment": "positive",
+                        "action_signal": "Bullish",
+                        "risk_score": 3,
+                        "is_pompom": false
+                    }}
+                    '''
                     
                     ai_res = ai_model.generate_content(prompt)
                     clean_res = ai_res.text.replace("```json", "").replace("```", "").strip()
@@ -128,13 +161,24 @@ for src in SOURCES:
                     bullets_list = data.get("bullets", bullets_list)
                     sentiment_val = data.get("sentiment", "neutral")
                     tickers_list = data.get("tickers", [])
-                    print("   🤖 Gemini AI Sukses Menganalisis.")
+                    action_signal = data.get("action_signal", "Watchlist")
+                    risk_score = data.get("risk_score", 5)
+                    is_pompom = data.get("is_pompom", False)
+
+                    # Jika terdeteksi pompom/hoax, tambahkan peringatan keras di poin analisis
+                    if is_pompom:
+                        bullets_list.insert(0, "⚠️ PERINGATAN AI: Berita terindikasi kata-kata sensasional / rumor spekulatif.")
+
+                    # Tambahkan indikator statistik AI
+                    bullets_list.append(f"📊 Signal AI: {action_signal} | Risk Index: {risk_score}/10")
+                    
+                    print(f"   🤖 AI Analysis: Signal={action_signal}, Risk={risk_score}/10, Pompom={is_pompom}")
                 except Exception as ai_err:
                     print(f"   ⚠️ AI Bypass: {ai_err}")
 
             # 3. Simpan Ke Supabase
             try:
-                supabase.table("berita").insert({
+                payload = {
                     "title": title_clean,
                     "summary": summary_text,
                     "bullets": bullets_list,
@@ -143,7 +187,9 @@ for src in SOURCES:
                     "sentiment": sentiment_val,
                     "source_url": link,
                     "is_active": True
-                }).execute()
+                }
+
+                supabase.table("berita").insert(payload).execute()
                 print("   ✅ SUCCESS SAVED TO SUPABASE!")
                 total_saved += 1
             except Exception as ins_err:
@@ -152,4 +198,4 @@ for src in SOURCES:
     except Exception as err:
         print(f"   ❌ Error pada {src['name']}: {err}")
 
-print(f"\n🎉 === BOT SELESAI! Total {total_saved} Berita Baru Tersimpan ===")
+print(f"\n🎉 === BOT SELESAI! Total {total_saved} Berita Analisis Tersimpan ===")
