@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BERITA PASAR - Smart Stock News & Beritamology</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase JS CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: system-ui, -apple-system, sans-serif; background-color: #f8fafc; }
+        .active-tab { background-color: #2563eb !important; color: white !important; font-weight: bold; }
+    </style>
+</head>
+<body class="max-w-2xl mx-auto p-4 pb-12">
+
+    <!-- HEADER -->
+    <header class="text-center my-6">
+        <h1 class="text-3xl font-extrabold text-slate-800 tracking-tight">BERITA PASAR 📈</h1>
+        <p class="text-slate-500 text-sm mt-1">Portal Berita Ekonomi & Analisis Saham Beritamology</p>
+        <div class="mt-2 inline-flex items-center gap-1.5 px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
+            <span>🛡️ AI Anti-Hoax & Pompom: Active</span>
+        </div>
+    </header>
+
+    <!-- SEARCH BAR -->
+    <div class="mb-5">
+        <input type="text" id="searchInput" onkeyup="filterNews()" placeholder="🔍 Cari berita atau kode saham (misal: BBCA)..." 
+            class="w-full p-3.5 rounded-2xl border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm">
+    </div>
+
+    <!-- 3 TABS NAVIGASI -->
+    <div class="grid grid-cols-3 gap-2 mb-6 text-sm font-medium">
+        <button id="tabBerita" onclick="switchTab('berita')" class="tab-btn active-tab py-2.5 rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition">
+            📰 Berita
+        </button>
+        <button id="tabPanas" onclick="switchTab('panas')" class="tab-btn py-2.5 rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition">
+            🔥 Berita Panas
+        </button>
+        <button id="tabBeritamology" onclick="switchTab('beritamology')" class="tab-btn py-2.5 rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm transition">
+            💡 Beritamology
+        </button>
+    </div>
+
+    <!-- CONTAINER BERITA -->
+    <div id="newsContainer" class="space-y-4">
+        <div class="text-center py-10 text-slate-400 font-medium">⏳ Memuat berita terbaru...</div>
+    </div>
+
+    <!-- LOGIKA JS & SUPABASE -->
+    <script>
+        // ⚠️ GANTI DENGAN CREDENTIALS SUPABASE KAMU
+        const SUPABASE_URL = https://nebhhgzjkbhruwaovike.supabase.co
+        const SUPABASE_ANON_KEY = sb_publishable_AwY2B9IlzOVutdJt7GnCbw_2Wo_QucF
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let allNewsData = [];
+        let currentTab = 'berita';
+
+        async function fetchNews() {
+            try {
+                const { data, error } = await supabaseClient
+                    .from('berita')
+                    .select('*')
+                    .eq('is_active', true)
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                allNewsData = data || [];
+                renderNews();
+            } catch (err) {
+                console.error("Error fetching news:", err);
+                document.getElementById('newsContainer').innerHTML = 
+                    `<div class="text-center py-10 text-red-500">❌ Gagal memuat berita. Pastikan URL & Anon Key Supabase sudah terisi dengan benar.</div>`;
+            }
+        }
+
+        function switchTab(tabName) {
+            currentTab = tabName;
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active-tab'));
+            
+            if (tabName === 'berita') document.getElementById('tabBerita').classList.add('active-tab');
+            if (tabName === 'panas') document.getElementById('tabPanas').classList.add('active-tab');
+            if (tabName === 'beritamology') document.getElementById('tabBeritamology').classList.add('active-tab');
+
+            renderNews();
+        }
+
+        function filterNews() {
+            renderNews();
+        }
+
+        function toggleDetail(elementId) {
+            const el = document.getElementById(elementId);
+            if (el) {
+                el.classList.toggle('hidden');
+            }
+        }
+
+        function renderNews() {
+            const container = document.getElementById('newsContainer');
+            const searchKeyword = document.getElementById('searchInput').value.toLowerCase();
+
+            let filtered = allNewsData.filter(item => {
+                const matchSearch = item.title.toLowerCase().includes(searchKeyword) || 
+                                    (item.summary && item.summary.toLowerCase().includes(searchKeyword)) ||
+                                    (item.tickers && JSON.stringify(item.tickers).toLowerCase().includes(searchKeyword));
+
+                if (!matchSearch) return false;
+
+                if (currentTab === 'berita') return true;
+
+                if (currentTab === 'panas') {
+                    return item.category === 'Makro' || 
+                           item.category === 'Pengumuman BEI' ||
+                           /ihsg|suku bunga|bank indonesia|fed|inflasi|rupiah/i.test(item.title);
+                }
+
+                if (currentTab === 'beritamology') {
+                    return item.tickers && item.tickers.length > 0;
+                }
+
+                return true;
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="text-center py-12 text-slate-400">Tidak ada berita di kategori ini.</div>`;
+                return;
+            }
+
+            container.innerHTML = filtered.map(item => {
+                const dateStr = new Date(item.created_at).toLocaleDateString('id-ID', {
+                    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                });
+
+                // TAB 1 & 2: BERITA UMUM / BERITA PANAS
+                if (currentTab !== 'beritamology') {
+                    return `
+                        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-2">
+                            <div class="flex items-center justify-between text-xs text-slate-400">
+                                <span>📰 ${item.category || 'Berita Ekonomi'}</span>
+                                <span>${dateStr}</span>
+                            </div>
+                            <h3 class="text-base font-bold text-slate-800 leading-snug">${item.title}</h3>
+                            <p class="text-sm text-slate-600 leading-relaxed">${item.summary || ''}</p>
+                            <div class="pt-2">
+                                <a href="${item.source_url}" target="_blank" class="text-xs text-blue-600 font-semibold hover:underline">
+                                    Baca artikel asli ↗
+                                </a>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // TAB 3: BERITAMOLOGY
+                const tickersBadges = (item.tickers || []).map(t => 
+                    `<span class="px-2.5 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded-lg border border-slate-200">$${t}</span>`
+                ).join(' ');
+
+                const bulletsHtml = (item.bullets || []).map(b => `<li class="text-xs text-slate-600 mb-1">${b}</li>`).join('');
+
+                let signalBadge = '<span class="px-2 py-0.5 bg-gray-100 text-gray-700 font-bold rounded text-xs">🟡 WATCHLIST</span>';
+                if (item.sentiment === 'positive') {
+                    signalBadge = '<span class="px-2 py-0.5 bg-green-100 text-green-700 font-bold rounded text-xs">🟢 BULLISH</span>';
+                } else if (item.sentiment === 'negative') {
+                    signalBadge = '<span class="px-2 py-0.5 bg-red-100 text-red-700 font-bold rounded text-xs">🔴 CAUTION</span>';
+                }
+
+                return `
+                    <div onclick="toggleDetail('detail-${item.id}')" 
+                         class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3 cursor-pointer hover:border-blue-400 transition">
+                        
+                        <!-- TAMPILAN LUAR (Netral) -->
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-1.5">${tickersBadges}</div>
+                            <span class="text-xs text-blue-600 font-semibold flex items-center gap-1">
+                                🔍 Bedah AI <span class="text-slate-400 text-[10px]">▼</span>
+                            </span>
+                        </div>
+
+                        <h3 class="text-base font-bold text-slate-800 leading-snug">${item.title}</h3>
+                        <div class="text-xs text-slate-400">${dateStr}</div>
+
+                        <!-- TAMPILAN DALAM (Klik untuk Expand) -->
+                        <div id="detail-${item.id}" class="hidden pt-3 border-t border-slate-100 space-y-3">
+                            <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-bold text-slate-500">Sinyal AI:</span>
+                                    ${signalBadge}
+                                </div>
+                            </div>
+
+                            <p class="text-xs text-slate-600 italic bg-blue-50/50 p-2.5 rounded-lg border border-blue-100">
+                                💡 "${item.summary || ''}"
+                            </p>
+
+                            <div class="space-y-1">
+                                <p class="text-xs font-bold text-slate-700">Poin Analisis Beritamology:</p>
+                                <ul class="list-disc list-inside bg-slate-50 p-3 rounded-xl border border-slate-100">
+                                    ${bulletsHtml}
+                                </ul>
+                            </div>
+
+                            <div class="pt-1 text-right">
+                                <a href="${item.source_url}" target="_blank" onclick="event.stopPropagation();" class="text-xs text-blue-600 font-semibold hover:underline">
+                                    Baca artikel asli di media ↗
+                                </a>
+                            </div>
+                        </div>
+
+                    </div>
+                `;
+            }).join('');
+        }
+
+        fetchNews();
+    </script>
+</body>
+</html>
