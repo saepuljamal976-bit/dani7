@@ -14,14 +14,14 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
-# Header wajib untuk API BEI/IDX agar tidak terblokir
+# Header wajib untuk API BEI/IDX
 IDX_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Referer": "https://www.idx.co.id/",
     "Accept": "application/json, text/plain, */*"
 }
 
-# DAFTAR PORTAL MEDIA FINANSIAL
+# DAFTAR PORTAL MEDIA FINANSIAL LENGKAP
 NEWS_FEEDS = [
     {"url": "https://www.cnbcindonesia.com/market/rss", "category": "Saham"},
     {"url": "https://www.cnbcindonesia.com/news/rss", "category": "Makro"},
@@ -145,7 +145,7 @@ if __name__ == "__main__":
             soup = BeautifulSoup(res.content, "xml")
             items = soup.find_all("item")
 
-            for item in items[:2]: # 2 berita terupdate per media
+            for item in items[:2]:
                 title = item.title.text.strip() if item.title else ""
                 link = item.link.text.strip() if item.link else ""
                 if title and link:
